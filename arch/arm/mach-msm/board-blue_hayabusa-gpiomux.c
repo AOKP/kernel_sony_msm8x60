@@ -91,13 +91,13 @@ static struct gpiomux_setting gsbi12 = {
 
 static struct gpiomux_setting cam_mclk0 = {
 	.func = GPIOMUX_FUNC_1,
-	.drv  = GPIOMUX_DRV_2MA,
+	.drv  = GPIOMUX_DRV_6MA,
 	.pull = GPIOMUX_PULL_NONE,
 };
 
 static struct gpiomux_setting cam_mclk1 = {
 	.func = GPIOMUX_FUNC_2,
-	.drv  = GPIOMUX_DRV_2MA,
+	.drv  = GPIOMUX_DRV_6MA,
 	.pull = GPIOMUX_PULL_NONE,
 };
 
@@ -141,10 +141,7 @@ static struct gpiomux_setting debug_uart_rx = {
 static struct msm_gpiomux_config semc_blue_all_cfgs[] __initdata = {
 	{ /* NC */
 		.gpio = 0,
-		.settings = {
-			[GPIOMUX_ACTIVE] = &unused_gpio,
-			[GPIOMUX_SUSPENDED] = &unused_gpio,
-		},
+		.settings = { [GPIOMUX_SUSPENDED] = &unused_gpio, },
 	},
 	{ /* MCAM_RST_N */
 		.gpio = 1,
@@ -272,15 +269,6 @@ static struct msm_gpiomux_config semc_blue_all_cfgs[] __initdata = {
 			[GPIOMUX_SUSPENDED] = &gpio_2ma_no_pull_low,
 		},
 	},
-#if defined(CONFIG_SONY_FELICA_SUPPORT) && !defined(CONFIG_NFC_PN544)
-	{ /* FELICIA_RFS */
-		.gpio = 19,
-		.settings = {
-			[GPIOMUX_ACTIVE] = &gpio_2ma_no_pull_in,
-			[GPIOMUX_SUSPENDED] = &gpio_2ma_no_pull_in,
-		},
-	},
-#elif !defined(CONFIG_SONY_FELICA_SUPPORT) && defined(CONFIG_NFC_PN544)
 	{ /* NFC_DWLD_EN */
 		.gpio = 19,
 		.settings = {
@@ -288,7 +276,6 @@ static struct msm_gpiomux_config semc_blue_all_cfgs[] __initdata = {
 			[GPIOMUX_SUSPENDED] = &gpio_2ma_no_pull_low,
 		},
 	},
-#endif
 	{ /* I2C_DATA_CAM */
 		.gpio = 20,
 		.settings = {
@@ -590,18 +577,18 @@ static struct msm_gpiomux_config semc_blue_all_cfgs[] __initdata = {
 			[GPIOMUX_SUSPENDED] = &gpio_2ma_pull_down_in,
 		},
 	},
-	{ /* UART_TX_FELICA */
+	{ /* NC */
 		.gpio = 71,
 		.settings = {
-			[GPIOMUX_ACTIVE] = &gpio_2ma_no_pull_low,
-			[GPIOMUX_SUSPENDED] = &gpio_2ma_no_pull_low,
+			[GPIOMUX_ACTIVE] = &unused_gpio,
+			[GPIOMUX_SUSPENDED] = &unused_gpio,
 		},
 	},
-	{ /* UART_RX_FELICA */
+	{ /* NC */
 		.gpio = 72,
 		.settings = {
-			[GPIOMUX_ACTIVE] = &gpio_2ma_pull_down_in,
-			[GPIOMUX_SUSPENDED] = &gpio_2ma_pull_down_in,
+			[GPIOMUX_ACTIVE] = &unused_gpio,
+			[GPIOMUX_SUSPENDED] = &unused_gpio,
 		},
 	},
 	{ /* I2C_DATA_PERI */
@@ -771,7 +758,7 @@ static struct msm_gpiomux_config semc_blue_all_cfgs[] __initdata = {
 
 	/* 103-105 not configured */
 
-	{ /* NFC_IRQ/FELICA_INT */
+	{ /* NFC_IRQ */
 		.gpio = 106,
 		.settings = {
 			[GPIOMUX_ACTIVE] = &gpio_2ma_no_pull_in,
