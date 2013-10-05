@@ -355,24 +355,6 @@ static struct kgsl_device *kgsl_get_minor(int minor)
 	return ret;
 }
 
-int kgsl_register_ts_notifier(struct kgsl_device *device,
-			      struct notifier_block *nb)
-{
-	BUG_ON(device == NULL);
-	return atomic_notifier_chain_register(&device->ts_notifier_list,
-					      nb);
-}
-EXPORT_SYMBOL(kgsl_register_ts_notifier);
-
-int kgsl_unregister_ts_notifier(struct kgsl_device *device,
-				struct notifier_block *nb)
-{
-	BUG_ON(device == NULL);
-	return atomic_notifier_chain_unregister(&device->ts_notifier_list,
-						nb);
-}
-EXPORT_SYMBOL(kgsl_unregister_ts_notifier);
-
 int kgsl_check_timestamp(struct kgsl_device *device,
 	struct kgsl_context *context, unsigned int timestamp)
 {
@@ -1421,11 +1403,10 @@ err:
 }
 
 static int memdesc_sg_virt(struct kgsl_memdesc *memdesc,
-	void *addr, int size)
+	unsigned long paddr, int size)
 {
 	int i;
 	int sglen = PAGE_ALIGN(size) / PAGE_SIZE;
-	unsigned long paddr = (unsigned long) addr;
 
 	memdesc->sg = kgsl_sg_alloc(sglen);
 
@@ -1476,34 +1457,33 @@ err:
 	return -EINVAL;
 }
 
-static int kgsl_setup_hostptr(struct kgsl_mem_entry *entry,
+static int kgsl_setup_useraddr(struct kgsl_mem_entry *entry,
 			      struct kgsl_pagetable *pagetable,
-			      void *hostptr, unsigned int offset,
+			      unsigned long useraddr, unsigned int offset,
 			      size_t size)
 {
 	struct vm_area_struct *vma;
 	unsigned int len;
 
 	down_read(&current->mm->mmap_sem);
-	vma = find_vma(current->mm, (unsigned int) hostptr);
+	vma = find_vma(current->mm, useraddr);
 	up_read(&current->mm->mmap_sem);
 
 	if (!vma) {
-		KGSL_CORE_ERR("find_vma(%p) failed\n", hostptr);
+		KGSL_CORE_ERR("find_vma(%lx) failed\n", useraddr);
 		return -EINVAL;
 	}
 
 	/* We don't necessarily start at vma->vm_start */
-	len = vma->vm_end - (unsigned long) hostptr;
+	len = vma->vm_end - useraddr;
 
 	if (offset >= len)
 		return -EINVAL;
 
-	if (!KGSL_IS_PAGE_ALIGNED((unsigned long) hostptr) ||
+	if (!KGSL_IS_PAGE_ALIGNED(useraddr) ||
 	    !KGSL_IS_PAGE_ALIGNED(len)) {
-		KGSL_CORE_ERR("user address len(%u)"
-			      "and start(%p) must be page"
-			      "aligned\n", len, hostptr);
+		KGSL_CORE_ERR("bad alignment: start(%lx) len(%u)\n",
+			      useraddr, len);
 		return -EINVAL;
 	}
 
@@ -1524,28 +1504,27 @@ static int kgsl_setup_hostptr(struct kgsl_mem_entry *entry,
 
 	entry->memdesc.pagetable = pagetable;
 	entry->memdesc.size = size;
-	entry->memdesc.hostptr = hostptr + (offset & PAGE_MASK);
+	entry->memdesc.useraddr = useraddr + (offset & PAGE_MASK);
 
-	return memdesc_sg_virt(&entry->memdesc,
-		hostptr + (offset & PAGE_MASK), size);
+	return memdesc_sg_virt(&entry->memdesc, entry->memdesc.useraddr,
+				size);
 }
 
 #ifdef CONFIG_ASHMEM
 static int kgsl_setup_ashmem(struct kgsl_mem_entry *entry,
 			     struct kgsl_pagetable *pagetable,
-			     int fd, void *hostptr, size_t size)
+			     int fd, unsigned long useraddr, size_t size)
 {
 	int ret;
 	struct vm_area_struct *vma;
 	struct file *filep, *vmfile;
 	unsigned long len;
-	unsigned int hostaddr = (unsigned int) hostptr;
 
-	vma = kgsl_get_vma_from_start_addr(hostaddr);
+	vma = kgsl_get_vma_from_start_addr(useraddr);
 	if (vma == NULL)
 		return -EINVAL;
 
-	if (vma->vm_pgoff || vma->vm_start != hostaddr) {
+	if (vma->vm_pgoff || vma->vm_start != useraddr) {
 		KGSL_CORE_ERR("Invalid vma region\n");
 		return -EINVAL;
 	}
@@ -1556,8 +1535,8 @@ static int kgsl_setup_ashmem(struct kgsl_mem_entry *entry,
 		size = len;
 
 	if (size != len) {
-		KGSL_CORE_ERR("Invalid size %d for vma region %p\n",
-			      size, hostptr);
+		KGSL_CORE_ERR("Invalid size %d for vma region %lx\n",
+			      size, useraddr);
 		return -EINVAL;
 	}
 
@@ -1577,9 +1556,9 @@ static int kgsl_setup_ashmem(struct kgsl_mem_entry *entry,
 	entry->priv_data = filep;
 	entry->memdesc.pagetable = pagetable;
 	entry->memdesc.size = ALIGN(size, PAGE_SIZE);
-	entry->memdesc.hostptr = hostptr;
+	entry->memdesc.useraddr = useraddr;
 
-	ret = memdesc_sg_virt(&entry->memdesc, hostptr, size);
+	ret = memdesc_sg_virt(&entry->memdesc, useraddr, size);
 	if (ret)
 		goto err;
 
@@ -1592,7 +1571,7 @@ err:
 #else
 static int kgsl_setup_ashmem(struct kgsl_mem_entry *entry,
 			     struct kgsl_pagetable *pagetable,
-			     int fd, void *hostptr, size_t size)
+			     int fd, unsigned long useraddr, size_t size)
 {
 	return -EINVAL;
 }
@@ -1686,8 +1665,8 @@ static long kgsl_ioctl_map_user_mem(struct kgsl_device_private *dev_priv,
 		if (param->hostptr == 0)
 			break;
 
-		result = kgsl_setup_hostptr(entry, private->pagetable,
-					    (void *) param->hostptr,
+		result = kgsl_setup_useraddr(entry, private->pagetable,
+					    param->hostptr,
 					    param->offset, param->len);
 		entry->memtype = KGSL_MEM_ENTRY_USER;
 		break;
@@ -1704,7 +1683,7 @@ static long kgsl_ioctl_map_user_mem(struct kgsl_device_private *dev_priv,
 			break;
 
 		result = kgsl_setup_ashmem(entry, private->pagetable,
-					   param->fd, (void *) param->hostptr,
+					   param->fd, param->hostptr,
 					   param->len);
 
 		entry->memtype = KGSL_MEM_ENTRY_ASHMEM;
@@ -2199,6 +2178,8 @@ static void
 kgsl_gpumem_vm_close(struct vm_area_struct *vma)
 {
 	struct kgsl_mem_entry *entry  = vma->vm_private_data;
+
+	entry->memdesc.useraddr = 0;
 	kgsl_mem_entry_put(entry);
 }
 
@@ -2210,6 +2191,7 @@ static struct vm_operations_struct kgsl_gpumem_vm_ops = {
 
 static int kgsl_mmap(struct file *file, struct vm_area_struct *vma)
 {
+	unsigned int ret;
 	unsigned long vma_offset = vma->vm_pgoff << PAGE_SHIFT;
 	struct kgsl_device_private *dev_priv = file->private_data;
 	struct kgsl_process_private *private = dev_priv->process_priv;
@@ -2236,8 +2218,20 @@ static int kgsl_mmap(struct file *file, struct vm_area_struct *vma)
 
 	if (!entry->memdesc.ops ||
 		!entry->memdesc.ops->vmflags ||
-		!entry->memdesc.ops->vmfault)
-		return -EINVAL;
+		!entry->memdesc.ops->vmfault) {
+		ret = -EINVAL;
+		goto err_put;
+	}
+
+	if (entry->memdesc.useraddr != 0) {
+		ret = -EBUSY;
+		goto err_put;
+	}
+
+	if (entry->memdesc.size != (vma->vm_end - vma->vm_start)) {
+		ret = -ERANGE;
+		goto err_put;
+	}
 
 	vma->vm_flags |= entry->memdesc.ops->vmflags(&entry->memdesc);
 
@@ -2246,7 +2240,12 @@ static int kgsl_mmap(struct file *file, struct vm_area_struct *vma)
 	vma->vm_ops = &kgsl_gpumem_vm_ops;
 	vma->vm_file = file;
 
+	entry->memdesc.useraddr = vma->vm_start;
+
 	return 0;
+err_put:
+	kgsl_mem_entry_put(entry);
+	return ret;
 }
 
 static irqreturn_t kgsl_irq_handler(int irq, void *data)

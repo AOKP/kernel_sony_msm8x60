@@ -208,6 +208,7 @@ struct msm_hdmi_mode_timing_info {
 static inline void MSM_HDMI_MODES_INIT_TIMINGS(
 	struct msm_hdmi_mode_timing_info *lut)
 {
+
 	uint32_t i;
 
 	for (i = 0; i < HDMI_VFRMT_MAX; i++) {
